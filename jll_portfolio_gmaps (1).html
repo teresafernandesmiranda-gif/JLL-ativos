@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JLL — Portefólio de Ativos</title>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --jll-red: #E30613;
+    --jll-red2: #c0050f;
+    --jll-dark: #1a1a1a;
+    --jll-grey: #4a4a4a;
+    --jll-lightgrey: #8a8a8a;
+    --border: #dcdcda;
+    --surface2: #f5f5f3;
+    --text: #1a1a1a;
+    --muted: #6a6a6a;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; font-family:'Roboto',sans-serif; overflow:hidden; display:flex; flex-direction:column; }
+
+  /* ── HEADER ── */
+  header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 24px; height:54px; background:var(--jll-dark);
+    flex-shrink:0; z-index:1000;
+  }
+  .logo-area { display:flex; align-items:center; gap:14px; }
+  .jll-logo  { font-size:1.5rem; font-weight:700; color:var(--jll-red); letter-spacing:.14em; }
+  .logo-div  { width:1px; height:20px; background:#3a3a3a; }
+  .logo-sub  { font-size:.7rem; color:#aaa; font-weight:300; letter-spacing:.08em; text-transform:uppercase; }
+  .hstats    { display:flex; }
+  .stat      { text-align:center; padding:0 16px; border-left:1px solid #333; }
+  .stat-val  { font-family:'Roboto Mono',monospace; font-size:1rem; font-weight:500; color:var(--jll-red); }
+  .stat-lbl  { font-size:.55rem; color:#888; text-transform:uppercase; letter-spacing:.1em; margin-top:1px; }
+  .btn-add   { background:var(--jll-red); color:#fff; border:none; padding:8px 18px; font-family:'Roboto',sans-serif; font-size:.75rem; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:.07em; transition:background .2s; white-space:nowrap; }
+  .btn-add:hover { background:var(--jll-red2); }
+
+  /* ── LAYOUT ── */
+  .main { display:flex; flex:1; overflow:hidden; position:relative; }
+
+  /* ── MAP ── */
+  #map { flex:1; cursor:crosshair !important; }
+  /* Override leaflet cursor for tiles */
+  .leaflet-grab { cursor:crosshair !important; }
+  .leaflet-dragging .leaflet-grab { cursor:grabbing !important; }
+
+  .map-hint {
+    position:absolute; bottom:30px; left:50%; transform:translateX(-50%);
+    background:rgba(26,26,26,.82); color:#fff; padding:7px 16px;
+    font-size:.65rem; font-family:'Roboto Mono',monospace;
+    letter-spacing:.06em; border-left:3px solid var(--jll-red);
+    pointer-events:none; z-index:500; white-space:nowrap;
+  }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width:300px; background:#fff; border-left:1px solid var(--border);
+    display:flex; flex-direction:column; overflow:hidden; flex-shrink:0;
+    box-shadow:-2px 0 10px rgba(0,0,0,.08); z-index:500;
+  }
+  .sb-header { padding:14px 18px 12px; border-bottom:3px solid var(--jll-red); background:var(--jll-dark); }
+  .sb-title  { font-size:.7rem; font-weight:700; color:#fff; text-transform:uppercase; letter-spacing:.1em; margin-bottom:2px; }
+  .sb-sub    { font-size:.62rem; color:#888; font-family:'Roboto Mono',monospace; }
+
+  .assets-list { flex:1; overflow-y:auto; }
+  .assets-list::-webkit-scrollbar { width:3px; }
+  .assets-list::-webkit-scrollbar-thumb { background:var(--border); }
+
+  .asset-item { padding:11px 16px; cursor:pointer; border-bottom:1px solid var(--border); transition:background .1s; }
+  .asset-item:hover  { background:var(--surface2); }
+  .asset-item.active { background:#fff5f5; border-left:3px solid var(--jll-red); padding-left:13px; }
+  .ai-top  { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:3px; }
+  .ai-name { font-size:.8rem; font-weight:500; flex:1; margin-right:6px; line-height:1.3; }
+  .ai-meta { font-size:.62rem; color:var(--muted); font-family:'Roboto Mono',monospace; }
+
+  .sbadge { font-size:.55rem; padding:2px 6px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+  .s-occ { background:#e8f5e9; color:#2e7d32; }
+  .s-vac { background:#ffebee; color:#E30613; }
+  .s-mix { background:#fff8e1; color:#f59e0b; }
+  .s-con { background:#e3f2fd; color:#1565c0; }
+  .s-def { background:#f5f5f5; color:#666; }
+
+  .empty-state { padding:36px 16px; text-align:center; color:var(--muted); }
+  .empty-icon  { font-size:1.8rem; opacity:.3; margin-bottom:10px; }
+  .empty-text  { font-size:.74rem; line-height:1.7; }
+
+  /* ── LEAFLET CUSTOM MARKERS ── */
+  .jll-marker-wrap {
+    display:flex; flex-direction:column; align-items:center;
+  }
+  .jll-marker-circle {
+    width:26px; height:26px; border-radius:50%;
+    border:2.5px solid white;
+    box-shadow:0 2px 8px rgba(0,0,0,.35);
+    display:flex; align-items:center; justify-content:center;
+    position:relative;
+  }
+  .jll-marker-circle::after {
+    content:''; position:absolute; bottom:-8px; left:50%;
+    transform:translateX(-50%);
+    border-left:6px solid transparent;
+    border-right:6px solid transparent;
+    border-top:8px solid currentColor;
+  }
+  .jll-marker-dot {
+    width:8px; height:8px; border-radius:50%; background:white; opacity:.85;
+  }
+
+  /* Leaflet popup overrides */
+  .leaflet-popup-content-wrapper {
+    border-radius:0 !important;
+    border-top:3px solid var(--jll-red) !important;
+    padding:0 !important;
+    font-family:'Roboto',sans-serif !important;
+    min-width:200px;
+    box-shadow:0 4px 20px rgba(0,0,0,.2) !important;
+  }
+  .leaflet-popup-content { margin:0 !important; }
+  .leaflet-popup-tip { display:none; }
+  .popup-inner { padding:12px 16px; }
+  .popup-name { font-size:.85rem; font-weight:700; color:var(--jll-dark); margin-bottom:2px; }
+  .popup-type { font-size:.65rem; color:var(--muted); margin-bottom:8px; }
+  .popup-btn  { background:var(--jll-red); color:#fff; border:none; padding:5px 12px; font-size:.7rem; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:.06em; width:100%; transition:background .15s; }
+  .popup-btn:hover { background:var(--jll-red2); }
+
+  /* ── MODAL ── */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:2000; align-items:center; justify-content:center; }
+  .modal-overlay.show { display:flex; }
+  .modal { background:#fff; border-top:4px solid var(--jll-red); width:560px; max-width:96vw; max-height:90vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.3); animation:su .2s ease; }
+  @keyframes su { from{transform:translateY(14px);opacity:0} to{transform:none;opacity:1} }
+
+  .m-header { padding:16px 22px 14px; display:flex; justify-content:space-between; align-items:center; background:var(--jll-dark); }
+  .m-eye    { font-size:.58rem; text-transform:uppercase; letter-spacing:.12em; color:var(--jll-red); font-weight:700; margin-bottom:2px; }
+  .m-title  { font-size:1rem; font-weight:500; color:#fff; }
+  .m-close  { background:none; border:1px solid #444; color:#aaa; width:28px; height:28px; cursor:pointer; font-size:.9rem; display:flex; align-items:center; justify-content:center; transition:all .15s; flex-shrink:0; }
+  .m-close:hover { border-color:var(--jll-red); color:var(--jll-red); }
+  .m-body   { padding:20px 22px; }
+
+  /* BI card */
+  .bi-card { display:none; }
+  .bi-card.show { display:block; }
+  .bi-loc  { display:flex; align-items:flex-start; gap:8px; font-size:.68rem; color:var(--muted); font-family:'Roboto Mono',monospace; background:var(--surface2); padding:8px 12px; margin-bottom:14px; border-left:3px solid var(--jll-red); line-height:1.5; }
+  .bi-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); border:1px solid var(--border); margin-bottom:14px; }
+  .bi-field{ background:#fff; padding:9px 13px; }
+  .bi-lbl  { font-size:.55rem; text-transform:uppercase; letter-spacing:.1em; color:var(--jll-lightgrey); font-weight:500; margin-bottom:3px; }
+  .bi-val  { font-size:.84rem; font-weight:500; color:var(--text); }
+  .bi-val.red { color:var(--jll-red); font-family:'Roboto Mono',monospace; }
+  .bi-actions { display:flex; gap:10px; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+  .btn-del { background:none; border:1px solid var(--jll-red); color:var(--jll-red); padding:7px 14px; font-size:.72rem; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:.06em; transition:all .15s; }
+  .btn-del:hover { background:var(--jll-red); color:#fff; }
+
+  /* Form */
+  .form-card { display:none; }
+  .form-card.show { display:block; }
+  .fnote { font-size:.67rem; color:var(--jll-grey); background:#fff8f8; border-left:3px solid var(--jll-red); padding:7px 11px; margin-bottom:14px; font-family:'Roboto Mono',monospace; line-height:1.5; }
+  .fsec  { font-size:.58rem; text-transform:uppercase; letter-spacing:.1em; color:var(--jll-red); font-weight:700; margin:14px 0 8px; padding-bottom:4px; border-bottom:1px solid #f0d0d0; }
+  .frow  { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+  .fgrp  { display:flex; flex-direction:column; gap:5px; margin-bottom:10px; }
+  .fgrp.nm { margin-bottom:0; }
+  label  { font-size:.58rem; text-transform:uppercase; letter-spacing:.1em; color:var(--jll-lightgrey); font-weight:500; }
+  input, select, textarea { background:#fff; border:1px solid var(--border); color:var(--text); padding:7px 10px; font-family:'Roboto',sans-serif; font-size:.82rem; outline:none; transition:border-color .15s; width:100%; }
+  input:focus, select:focus, textarea:focus { border-color:var(--jll-red); box-shadow:0 0 0 2px rgba(227,6,19,.08); }
+  textarea { resize:vertical; min-height:56px; }
+  .btn-sub { background:var(--jll-red); color:#fff; border:none; padding:10px 22px; font-family:'Roboto',sans-serif; font-size:.78rem; font-weight:700; cursor:pointer; width:100%; text-transform:uppercase; letter-spacing:.08em; transition:background .15s; margin-top:4px; }
+  .btn-sub:hover { background:var(--jll-red2); }
+
+  /* Toast */
+  .toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(12px); background:var(--jll-dark); color:#fff; padding:9px 20px; font-size:.74rem; border-left:4px solid var(--jll-red); opacity:0; transition:all .25s; pointer-events:none; z-index:9999; font-family:'Roboto Mono',monospace; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-area">
+    <div class="jll-logo">JLL</div>
+    <div class="logo-div"></div>
+    <div class="logo-sub">Portefólio de Ativos</div>
+  </div>
+  <div class="hstats">
+    <div class="stat"><div class="stat-val" id="s-total">0</div><div class="stat-lbl">Ativos</div></div>
+    <div class="stat"><div class="stat-val" id="s-area">—</div><div class="stat-lbl">m² Totais</div></div>
+    <div class="stat"><div class="stat-val" id="s-occ">0</div><div class="stat-lbl">Ocupados</div></div>
+    <div class="stat"><div class="stat-val" id="s-vac">0</div><div class="stat-lbl">Devolutos</div></div>
+  </div>
+  <button class="btn-add" onclick="openAddModal(null)">+ Novo Ativo</button>
+</header>
+
+<div class="main">
+  <div id="map"></div>
+  <div class="map-hint">📍 Clique no mapa para adicionar um novo ativo</div>
+
+  <div class="sidebar">
+    <div class="sb-header">
+      <div class="sb-title">Inventário de Ativos</div>
+      <div class="sb-sub" id="sb-sub">0 ativos registados</div>
+    </div>
+    <div class="assets-list" id="assets-list">
+      <div class="empty-state">
+        <div class="empty-icon">◫</div>
+        <div class="empty-text">Nenhum ativo registado.<br>Clique no mapa ou em<br>"Novo Ativo" para começar.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeOut(event)">
+  <div class="modal">
+    <div class="m-header">
+      <div>
+        <div class="m-eye" id="m-eye">Ficha do Ativo</div>
+        <div class="m-title" id="m-title">—</div>
+      </div>
+      <button class="m-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="m-body">
+
+      <!-- BI CARD -->
+      <div class="bi-card" id="bi-card">
+        <div class="bi-loc" id="bi-loc"></div>
+        <div class="bi-grid" id="bi-grid"></div>
+        <div id="bi-notes"></div>
+        <div class="bi-actions">
+          <button class="btn-del" onclick="deleteAsset()">Eliminar Ativo</button>
+        </div>
+      </div>
+
+      <!-- FORM -->
+      <div class="form-card" id="form-card">
+        <div class="fnote" id="fnote">Coordenadas obtidas pelo clique no mapa.</div>
+
+        <div class="fsec">Localização</div>
+        <div class="frow">
+          <div class="fgrp nm"><label>Latitude *</label><input type="number" id="f-lat" step="0.00001" placeholder="38.71667"></div>
+          <div class="fgrp nm"><label>Longitude *</label><input type="number" id="f-lng" step="0.00001" placeholder="-9.13333"></div>
+        </div>
+        <div class="fgrp" style="margin-top:10px">
+          <label>Morada</label>
+          <input type="text" id="f-address" placeholder="ex: Av. da Liberdade 50, Lisboa">
+        </div>
+
+        <div class="fsec">Identificação</div>
+        <div class="fgrp">
+          <label>Nome do Ativo *</label>
+          <input type="text" id="f-name" placeholder="ex: Edifício Marquês de Pombal">
+        </div>
+        <div class="frow">
+          <div class="fgrp nm">
+            <label>Tipo de Ativo</label>
+            <select id="f-type">
+              <option value="">Selecionar...</option>
+              <option>Escritório</option><option>Retalho</option>
+              <option>Industrial</option><option>Habitação</option>
+              <option>Hotel</option><option>Logística</option>
+              <option>Misto</option><option>Outro</option>
+            </select>
+          </div>
+          <div class="fgrp nm">
+            <label>Estado de Ocupação</label>
+            <select id="f-occ">
+              <option value="">Selecionar...</option>
+              <option>Ocupado</option><option>Devoluto</option>
+              <option>Misto</option><option>Em Obras</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="fsec">Dados Técnicos</div>
+        <div class="frow">
+          <div class="fgrp nm"><label>Área Bruta (m²)</label><input type="number" id="f-area" placeholder="2500"></div>
+          <div class="fgrp nm"><label>Área Útil (m²)</label><input type="number" id="f-areau" placeholder="2100"></div>
+        </div>
+        <div class="frow" style="margin-top:10px">
+          <div class="fgrp nm"><label>Nº de Pisos</label><input type="number" id="f-floors" placeholder="8"></div>
+          <div class="fgrp nm"><label>Ano de Construção</label><input type="number" id="f-year" placeholder="1998"></div>
+        </div>
+
+        <div class="fsec">Informação Comercial</div>
+        <div class="frow">
+          <div class="fgrp nm"><label>Valor Estimado (€)</label><input type="number" id="f-value" placeholder="1500000"></div>
+          <div class="fgrp nm"><label>Renda Mensal (€)</label><input type="number" id="f-rent" placeholder="12000"></div>
+        </div>
+        <div class="fgrp" style="margin-top:10px">
+          <label>Inquilino / Ocupante</label>
+          <input type="text" id="f-tenant" placeholder="ex: Empresa XYZ, Lda">
+        </div>
+        <div class="fgrp">
+          <label>Notas</label>
+          <textarea id="f-notes" placeholder="Informações adicionais..."></textarea>
+        </div>
+        <button class="btn-sub" onclick="saveAsset()">Registar Ativo</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════
+let assets  = JSON.parse(localStorage.getItem('jll_osm_v1') || '[]');
+let activeId = null;
+let selId    = null;
+let leafletMarkers = {};
+
+// ════════════════════════════════════════
+//  INIT LEAFLET MAP
+// ════════════════════════════════════════
+const map = L.map('map', {
+  center: [39.5, -8.0],
+  zoom: 7,
+  zoomControl: true,
+});
+
+// OpenStreetMap tiles
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom: 19,
+}).addTo(map);
+
+// Click on map → open add modal
+map.on('click', e => {
+  openAddModal({
+    lat: +e.latlng.lat.toFixed(5),
+    lng: +e.latlng.lng.toFixed(5),
+  });
+});
+
+// ════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════
+const COLORS = { 'Ocupado':'#2e7d32', 'Devoluto':'#E30613', 'Em Obras':'#1565c0' };
+function dColor(o) { return COLORS[o] || '#f59e0b'; }
+function sCls(o)   { return {'Ocupado':'s-occ','Devoluto':'s-vac','Em Obras':'s-con','Misto':'s-mix'}[o] || 's-def'; }
+function fmt(n)    { return n ? Number(n).toLocaleString('pt-PT') : '—'; }
+
+// Custom Leaflet icon using DivIcon
+function makeIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `
+      <div style="
+        width:28px; height:28px; border-radius:50%;
+        background:${color}; border:2.5px solid white;
+        box-shadow:0 2px 10px rgba(0,0,0,.4);
+        display:flex; align-items:center; justify-content:center;
+        position:relative;
+      ">
+        <div style="width:9px;height:9px;border-radius:50%;background:white;opacity:.9;"></div>
+        <div style="
+          position:absolute; bottom:-9px; left:50%;
+          transform:translateX(-50%);
+          width:0; height:0;
+          border-left:7px solid transparent;
+          border-right:7px solid transparent;
+          border-top:9px solid ${color};
+          filter:drop-shadow(0 2px 2px rgba(0,0,0,.2));
+        "></div>
+      </div>
+    `,
+    iconSize: [28, 37],
+    iconAnchor: [14, 37],
+    popupAnchor: [0, -38],
+  });
+}
+
+// ════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════
+function renderAll() {
+  renderMarkers();
+  renderList();
+  updateStats();
+}
+
+function renderMarkers() {
+  // Remove old markers
+  Object.values(leafletMarkers).forEach(m => map.removeLayer(m));
+  leafletMarkers = {};
+
+  assets.forEach(a => {
+    const marker = L.marker([a.lat, a.lng], { icon: makeIcon(dColor(a.occupancy)) })
+      .addTo(map)
+      .bindPopup(`
+        <div class="popup-inner">
+          <div class="popup-name">${a.name || 'Sem nome'}</div>
+          <div class="popup-type">${a.type || ''}${a.occupancy ? ' · ' + a.occupancy : ''}${a.area ? ' · ' + fmt(a.area) + ' m²' : ''}</div>
+          <button class="popup-btn" onclick="openBI('${a.id}'); map.closePopup();">Ver Ficha Completa</button>
+        </div>
+      `, { maxWidth: 240 });
+
+    marker.on('click', () => {
+      selId = a.id;
+      renderList();
+    });
+
+    leafletMarkers[a.id] = marker;
+  });
+}
+
+function renderList() {
+  const list = document.getElementById('assets-list');
+  document.getElementById('sb-sub').textContent =
+    `${assets.length} ativo${assets.length !== 1 ? 's' : ''} registado${assets.length !== 1 ? 's' : ''}`;
+
+  if (!assets.length) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">◫</div><div class="empty-text">Nenhum ativo registado.<br>Clique no mapa ou em<br>"Novo Ativo" para começar.</div></div>`;
+    return;
+  }
+
+  list.innerHTML = assets.map(a => `
+    <div class="asset-item ${selId === a.id ? 'active' : ''}" onclick="focusAsset('${a.id}')">
+      <div class="ai-top">
+        <div class="ai-name">${a.name || 'Sem nome'}</div>
+        <span class="sbadge ${sCls(a.occupancy)}">${a.occupancy || '—'}</span>
+      </div>
+      <div class="ai-meta">
+        ${a.type || 'Tipo n/d'}${a.area ? ' · ' + fmt(a.area) + ' m²' : ''}${a.address ? ' · ' + a.address : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function updateStats() {
+  document.getElementById('s-total').textContent = assets.length;
+  const tot = assets.reduce((s, a) => s + (Number(a.area) || 0), 0);
+  document.getElementById('s-area').textContent = tot ? fmt(tot) : '—';
+  document.getElementById('s-occ').textContent = assets.filter(a => a.occupancy === 'Ocupado').length;
+  document.getElementById('s-vac').textContent = assets.filter(a => a.occupancy === 'Devoluto').length;
+}
+
+function focusAsset(id) {
+  const a = assets.find(x => x.id === id);
+  if (!a) return;
+  selId = id;
+  renderList();
+  map.setView([a.lat, a.lng], 15, { animate: true });
+  if (leafletMarkers[id]) leafletMarkers[id].openPopup();
+}
+
+// ════════════════════════════════════════
+//  MODALS
+// ════════════════════════════════════════
+function openAddModal(coords) {
+  document.getElementById('m-eye').textContent   = 'Novo Ativo';
+  document.getElementById('m-title').textContent = 'Registar Ativo';
+  document.getElementById('bi-card').classList.remove('show');
+  document.getElementById('form-card').classList.add('show');
+
+  ['f-lat','f-lng','f-name','f-address','f-area','f-areau','f-floors','f-year','f-value','f-rent','f-tenant','f-notes']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('f-type').value = '';
+  document.getElementById('f-occ').value  = '';
+
+  if (coords) {
+    document.getElementById('f-lat').value = coords.lat;
+    document.getElementById('f-lng').value = coords.lng;
+    document.getElementById('fnote').textContent = `📍 Coordenadas: ${coords.lat}, ${coords.lng} — ajuste se necessário.`;
+  } else {
+    document.getElementById('fnote').textContent = 'Preencha as coordenadas ou clique no mapa para pré-preencher.';
+  }
+  document.getElementById('modal-overlay').classList.add('show');
+}
+
+function openBI(id) {
+  const a = assets.find(x => x.id === id);
+  if (!a) return;
+  selId = id; activeId = id;
+  renderList();
+
+  document.getElementById('m-eye').textContent   = a.type || 'Ativo Imobiliário';
+  document.getElementById('m-title').textContent = a.name || 'Ficha do Ativo';
+  document.getElementById('form-card').classList.remove('show');
+  document.getElementById('bi-card').classList.add('show');
+
+  document.getElementById('bi-loc').innerHTML =
+    `<strong>📍</strong>&nbsp; ${a.lat}, ${a.lng}${a.address ? ' &nbsp;·&nbsp; ' + a.address : ''}`;
+
+  const fields = [
+    { l:'Tipo de Ativo',   v: a.type    || '—' },
+    { l:'Ocupação',        v: a.occupancy || '—', r: true },
+    { l:'Área Bruta',      v: a.area  ? fmt(a.area)  + ' m²' : '—', r: true },
+    { l:'Área Útil',       v: a.areaU ? fmt(a.areaU) + ' m²' : '—' },
+    { l:'Nº de Pisos',     v: a.floors  || '—' },
+    { l:'Ano Construção',  v: a.year    || '—' },
+    { l:'Valor Estimado',  v: a.value   ? '€ ' + fmt(a.value) : '—', r: true },
+    { l:'Renda Mensal',    v: a.rent    ? '€ ' + fmt(a.rent)  : '—' },
+    { l:'Inquilino',       v: a.tenant  || '—' },
+    { l:'Referência',      v: a.id.slice(0,8).toUpperCase() },
+  ];
+
+  document.getElementById('bi-grid').innerHTML =
+    fields.map(f => `
+      <div class="bi-field">
+        <div class="bi-lbl">${f.l}</div>
+        <div class="bi-val${f.r ? ' red' : ''}">${f.v}</div>
+      </div>
+    `).join('');
+
+  document.getElementById('bi-notes').innerHTML = a.notes ? `
+    <div style="background:var(--surface2);border-left:3px solid var(--jll-red);padding:9px 13px;font-size:.78rem;color:var(--jll-grey);line-height:1.6;">
+      <div style="font-size:.55rem;text-transform:uppercase;letter-spacing:.1em;color:var(--jll-lightgrey);font-weight:500;margin-bottom:3px">Notas</div>
+      ${a.notes}
+    </div>` : '';
+
+  document.getElementById('modal-overlay').classList.add('show');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('show');
+  selId = null;
+  renderList();
+}
+function closeOut(e) {
+  if (e.target === document.getElementById('modal-overlay')) closeModal();
+}
+
+// ════════════════════════════════════════
+//  SAVE / DELETE
+// ════════════════════════════════════════
+function saveAsset() {
+  const lat  = parseFloat(document.getElementById('f-lat').value);
+  const lng  = parseFloat(document.getElementById('f-lng').value);
+  const name = document.getElementById('f-name').value.trim();
+
+  if (isNaN(lat) || isNaN(lng)) { showToast('⚠ Coordenadas inválidas'); return; }
+  if (!name)                     { showToast('⚠ Insira um nome para o ativo'); return; }
+
+  const a = {
+    id:        crypto.randomUUID(),
+    lat, lng, name,
+    type:      document.getElementById('f-type').value,
+    occupancy: document.getElementById('f-occ').value,
+    area:      document.getElementById('f-area').value,
+    areaU:     document.getElementById('f-areau').value,
+    floors:    document.getElementById('f-floors').value,
+    year:      document.getElementById('f-year').value,
+    value:     document.getElementById('f-value').value,
+    rent:      document.getElementById('f-rent').value,
+    tenant:    document.getElementById('f-tenant').value,
+    address:   document.getElementById('f-address').value,
+    notes:     document.getElementById('f-notes').value,
+  };
+
+  assets.push(a);
+  localStorage.setItem('jll_osm_v1', JSON.stringify(assets));
+  closeModal();
+  renderAll();
+  map.setView([lat, lng], 15, { animate: true });
+  setTimeout(() => { if (leafletMarkers[a.id]) leafletMarkers[a.id].openPopup(); }, 400);
+  showToast('✓ Ativo registado com sucesso');
+}
+
+function deleteAsset() {
+  if (!activeId || !confirm('Confirma a eliminação deste ativo?')) return;
+  if (leafletMarkers[activeId]) {
+    map.removeLayer(leafletMarkers[activeId]);
+    delete leafletMarkers[activeId];
+  }
+  assets = assets.filter(a => a.id !== activeId);
+  localStorage.setItem('jll_osm_v1', JSON.stringify(assets));
+  closeModal();
+  renderAll();
+  showToast('Ativo eliminado');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════
+renderAll();
+</script>
+</body>
+</html>
